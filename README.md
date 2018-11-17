@@ -7,4 +7,4 @@ pip3 install pdfminer.six
 
 run:
 
-python3 pdf2txt.py
+python3 pdf2txt.py <pdf_file_name>
