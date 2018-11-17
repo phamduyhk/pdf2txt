@@ -1,26 +1,74 @@
-from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
-from pdfminer.converter import TextConverter
-from pdfminer.layout import LAParams
+import sys
+
+from pdfminer.converter import PDFPageAggregator
+from pdfminer.layout import LAParams, LTContainer, LTTextBox
+from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
 from pdfminer.pdfpage import PDFPage
-from io import StringIO
 
-rsrcmgr = PDFResourceManager()
-rettxt = StringIO()
-laparams = LAParams()
-# 縦書き文字を横並びで出力する
-laparams.detect_vertical = True
-device = TextConverter(rsrcmgr, rettxt, codec='utf-8', laparams=laparams)
-# 処理するPDFを開く
-fp = open('document.pdf', 'rb')
-interpreter = PDFPageInterpreter(rsrcmgr, device)
 
-# maxpages：ページ指定（0は全ページ）
-for page in PDFPage.get_pages(fp, pagenos=None, maxpages=0, password=None, caching=True, check_extractable=True):
-    interpreter.process_page(page)
+def find_textboxes_recursively(layout_obj):
+    """
+    再帰的にテキストボックス（LTTextBox）を探して、テキストボックスのリストを取得する。
+    """
+    # LTTextBoxを継承するオブジェクトの場合は1要素のリストを返す。
+    if isinstance(layout_obj, LTTextBox):
+        return [layout_obj]
 
-print(rettxt.getvalue(),file=open("output.txt", "a"))
-print("読み込み完了")
+    # LTContainerを継承するオブジェクトは子要素を含むので、再帰的に探す。
+    if isinstance(layout_obj, LTContainer):
+        boxes = []
+        for child in layout_obj:
+            boxes.extend(find_textboxes_recursively(child))
 
-fp.close()
-device.close()
-rettxt.close()
+        return boxes
+
+    return []  # その他の場合は空リストを返す。
+
+# Layout Analysisのパラメーターを設定。縦書きの検出を有効にする。
+laparams = LAParams(detect_vertical=True)
+
+# 共有のリソースを管理するリソースマネージャーを作成。
+resource_manager = PDFResourceManager()
+
+# ページを集めるPageAggregatorオブジェクトを作成。
+device = PDFPageAggregator(resource_manager, laparams=laparams)
+
+# Interpreterオブジェクトを作成。
+interpreter = PDFPageInterpreter(resource_manager, device)
+
+# 出力用のテキストファイル
+output_txt = open('output.txt', 'w')
+
+def print_and_write(txt):
+    print(txt)
+    output_txt.write(txt)
+    output_txt.write('\n')
+
+with open(sys.argv[1], 'rb') as f:
+    # PDFPage.get_pages()にファイルオブジェクトを指定して、PDFPageオブジェクトを順に取得する。
+    # 時間がかかるファイルは、キーワード引数pagenosで処理するページ番号（0始まり）のリストを指定するとよい。
+    for page in PDFPage.get_pages(f):
+        print_and_write('\n====== ページ区切り ======\n')
+        interpreter.process_page(page)  # ページを処理する。
+        layout = device.get_result()  # LTPageオブジェクトを取得。
+
+        print(type(layout))
+
+        # ページ内のテキストボックスのリストを取得する。
+        boxes = find_textboxes_recursively(layout)
+
+        # テキストボックスの左上の座標の順でテキストボックスをソートする。
+        # y1（Y座標の値）は上に行くほど大きくなるので、正負を反転させている。
+        boxes.sort(key=lambda b: (-b.y1, b.x0))
+
+        for box in boxes:
+            print_and_write('-' * 10)  # 読みやすいよう区切り線を表示する。
+            print_and_write(box.get_text().strip())  # テキストボックス内のテキストを表示する。
+
+output_txt.close()
+
+# Get the outlines of the document.
+# document = PDFDocument(parser, password)
+# outlines = document.get_outlines()
+# for (level,title,dest,a,se) in outlines:
+#     print (level, title)
