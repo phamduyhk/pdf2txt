@@ -1,5 +1,4 @@
 # pdf2txt
-環境インストール:
 
 `pip3 install pycrypto six`
 
